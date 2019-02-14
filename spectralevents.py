@@ -7,7 +7,7 @@ import scipy.ndimage as ndimage
 import scipy.ndimage.filters as filters
 import matplotlib.pyplot as plt
 import pandas as pd
-#import spectralevents_functions as sef
+import seaborn as sns
 
 def spectralevents_ts2tfr (S,fVec,Fs,width):
     # spectralevents_ts2tfr(S,fVec,Fs,width);
@@ -166,11 +166,12 @@ def spectralevents_find (findMethod, thrFOM, tVec, fVec, TFR, classLabels, neigh
     classes = np.unique(classLabels)
 
     # Median power at each frequency across all trials
-    TFRreshape = np.reshape(TFR, (flength, tlength*numTrials))
+    TFRpermute = np.transpose(TFR, [1, 2, 0]) # freq x time x trial
+    TFRreshape = np.reshape(TFRpermute, (flength, tlength*numTrials))
     medianPower = np.median(TFRreshape, axis=1)
 
     # Spectral event threshold for each frequency value
-    thr = thrFOM*medianPower
+    eventThresholdByFrequency = thrFOM*medianPower
 
     # Validate consistency of parameter dimensions
     if flength != len(fVec):
@@ -183,7 +184,7 @@ def spectralevents_find (findMethod, thrFOM, tVec, fVec, TFR, classLabels, neigh
     # Find spectral events using appropriate method
     #    Implementing one for now
     if findMethod == 1:
-        spectralEvents = find_localmax_method_1(TFR, fVec, tVec, classLabels, medianPower, neighbourhood_size, threshold, Fs)
+        spectralEvents = find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabels, medianPower, neighbourhood_size, threshold, Fs)
     elif findMethod == 2:
         spectralEvents = find_localmax_method_1 # HACK!!!!
     elif findMethod == 3:
@@ -240,8 +241,7 @@ def fwhm_lower_upper_bound1(vec, peakInd, peakValue):
 
     return lowerInd, upperInd, FWHM
 
-
-def find_localmax_method_1(TFR, fVec, tVec, classLabels, medianPower, neighbourhood_size, threshold, Fs):
+def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabels, medianPower, neighbourhood_size, threshold, Fs):
     # 1st event-finding method (primary event detection method in Shin et 
     # al. eLife 2017): Find spectral events by first retrieving all local 
     # maxima in un-normalized TFR using imregionalmax, then selecting 
@@ -336,7 +336,8 @@ def find_localmax_method_1(TFR, fVec, tVec, classLabels, medianPower, neighbourh
                 'Event Offset Time': upperEdgeTime,
                 'Event Duration': FWHMTime,
                 'Peak Power': thisPeakPower,
-                'Normalized Peak Power': thisPeakPower/medianPower[thisPeakF]
+                'Normalized Peak Power': thisPeakPower/medianPower[thisPeakF],
+                'Outlier Event': thisPeakPower > eventThresholdByFrequency[thisPeakF]
                 }
 
              # Build a list of dictionaries 
@@ -349,17 +350,17 @@ def main():
 
     # Setup paths and names for file 
     dataDir = '/Users/tbardouille/Documents/Work/Projects/CambridgeLargeData/Data/proc_data/'
-    subjectID = 'CC310214'
     epochFifFilename = 'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo.fif'
-    spectralEventsCSV = 'baseline_beta_spectral_events.csv'
+    spectralEventsCSV = 'beta_spectral_events_-1.0to1.0s.csv'
 
     # Frequency range [Hz] that will be searched for spectral events
-    eventBand = [15,29]
+    #eventBand = [15,29]
     # Event-finding method (1 allows for maximal overlap while 2 limits overlap in each respective suprathreshold region)
     findMethod = 1     
     # Factors of Median threshold (see Shin et al. eLife 2017 for details concerning this value)
-    thrFOM = 6
+    thrFOM = 6 
 
+    subjects = ['CC310214', 'CC310051', 'CC321137']
     tmin = -1.0     # seconds
     tmax = 1.0     # seconds
     fmin = 1        # Hertz (integer)
@@ -374,52 +375,60 @@ def main():
     neighbourhood_size = (footprintFreq,footprintTime)
 
     vis = True
-    plotOK = False
+    plotOK = True
 
     ################################
     # Processing starts here
 
-    # Make the filename with path
-    epochFif = os.path.join(dataDir, subjectID, epochFifFilename)
-    csvFile = os.path.join(dataDir, subjectID, spectralEventsCSV)
+    dfs = []
+    for subjectID in subjects:
 
-    # Read the epochs
-    epochs = mne.read_epochs(epochFif, verbose=False)
-    Fs = epochs.info['sfreq']
+        print(subjectID)
+        # Make the filename with path
+        epochFif = os.path.join(dataDir, subjectID, epochFifFilename)
 
-    # Extract the data
-    epochs.crop(tmin, tmax)
-    epochs.pick_channels([channelName])
-    epochData = np.squeeze(epochs.get_data())
+        # Read the epochs
+        epochs = mne.read_epochs(epochFif, verbose=False)
+        Fs = epochs.info['sfreq']
 
-    # Vector of frequencies in TFR [Hz]
-    fVec = np.arange(fmin, fmax+1, fstep)
+        # Extract the data
+        epochs.crop(tmin, tmax)
+        epochs.pick_channels([channelName])
+        epochData = np.squeeze(epochs.get_data())
 
-    # Make a TFR for each epoch [trials x frequency x time]
-    print('Calculating TFRs')
-    TFR, tVec, fVec = spectralevents_ts2tfr(epochData.T,fVec,Fs,width)
+        # Vector of frequencies in TFR [Hz]
+        fVec = np.arange(fmin, fmax+1, fstep)
 
-    # Vector of times in TFR [s]
-    tVec = tVec + tmin
+        # Make a TFR for each epoch [trials x frequency x time]
+        print('Calculating TFRs')
+        TFR, tVec, fVec = spectralevents_ts2tfr(epochData.T,fVec,Fs,width)
 
-    # Set all class labels to the same value (button press)
-    numTrials = TFR.shape[0]
-    classLabels = [1 for x in range(numTrials)]
+        # Vector of times in TFR [s]
+        tVec = tVec + tmin
 
-    # Find spectral events based on TFR
-    print('Finding Spectral Events')
-    spectralEvents = spectralevents_find (findMethod, thrFOM, tVec, 
-        fVec, TFR, classLabels, neighbourhood_size, threshold, Fs)
-    print('Found ' + str(len(spectralEvents)) + ' spectral events.')
+        # Set all class labels to the same value (button press)
+        numTrials = TFR.shape[0]
+        classLabels = [1 for x in range(numTrials)]
 
-    # Write data to a CSV file
-    print('Writing event characteristics to file')
-    df = pd.DataFrame(spectralEvents)
-    df.to_csv(csvFile)
+        # Find spectral events based on TFR
+        print('Finding Spectral Events')
+        spectralEvents = spectralevents_find (findMethod, thrFOM, tVec, 
+            fVec, TFR, classLabels, neighbourhood_size, threshold, Fs)
+        print('Found ' + str(len(spectralEvents)) + ' spectral events.')
 
+        # Write data to a CSV file
+        print('Writing event characteristics to file')
+        df = pd.DataFrame(spectralEvents)
+        df['Subject ID'] = subjectID
+        dfs.append(df)
+
+    csvFile = os.path.join(dataDir, spectralEventsCSV)
+    allDfs = pd.concat(dfs)
+    allDfs.to_csv(csvFile)
+ 
     if plotOK:
-        plt.pcolor(tVec, fVec, np.squeeze(np.mean(TFR, axis=0)))
-        plt.colorbar()
+        df1 = allDfs[allDfs['Outlier Event']==True]
+        sns.jointplot(x='Peak Time', y='Peak Frequency', data=df1, kind='hex')
         plt.show()
 
 
