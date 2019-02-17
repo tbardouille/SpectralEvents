@@ -1,4 +1,8 @@
-import os, sys
+#!/usr/bin/env python
+
+# Import libraries
+import os
+import sys
 import time
 import mne
 import numpy as np
@@ -8,6 +12,28 @@ import scipy.ndimage.filters as filters
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import logging
+import multiprocessing as mp
+import warnings
+
+logger = logging.getLogger(__name__)
+mne.set_log_level("WARNING")
+
+warnings.simplefilter("ignore", category=DeprecationWarning)
+warnings.simplefilter("ignore", category=RuntimeWarning)
+
+class StreamToLogger(object):
+   """
+   Fake file-like stream object that redirects writes to a logger instance.
+   """
+   def __init__(self, logger, log_level=logging.INFO):
+      self.logger = logger
+      self.log_level = log_level
+      self.linebuf = ''
+
+   def write(self, buf):
+      for line in buf.rstrip().splitlines():
+         self.logger.log(self.log_level, line.rstrip())
 
 def spectralevents_ts2tfr (S,fVec,Fs,width):
     # spectralevents_ts2tfr(S,fVec,Fs,width);
@@ -345,25 +371,15 @@ def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabe
 
     return spectralEvents
 
-def main():
+def get_spectral_events(subjectID):
     """Top-level run script for finding spectral events in MEG data."""
 
-    # Setup paths and names for file 
-    #dataDir = '/Users/tbardouille/Documents/Work/Projects/CambridgeLargeData/Data/proc_data/'
-    dataDir = '/home/timb/camcan/proc_data/TaskSensorAnalysis_transdef'
-    epochFifFilename = 'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo.fif'
-    spectralEventsCSV = 'beta_spectral_events_-1.0to1.0s.csv'
-
-    # Frequency range [Hz] that will be searched for spectral events
-    #eventBand = [15,29]
     # Event-finding method (1 allows for maximal overlap while 2 limits overlap in each respective suprathreshold region)
+    #   Only method 1 is implemented so far
     findMethod = 1     
     # Factors of Median threshold (see Shin et al. eLife 2017 for details concerning this value)
     thrFOM = 6 
 
-    subjects = ['CC310214', 'CC310051', 'CC321137',
-            'CC210172', 'CC222367', 'CC320698', 'CC420091', 'CC510392', 'CC610061', 'CC621118', 'CC721888',
-            'CC210174', 'CC222496', 'CC320759', 'CC420094', 'CC510393', 'CC610071', 'CC621128', 'CC721891']
     tmin = -1.0     # seconds
     tmax = 1.0     # seconds
     fmin = 1        # Hertz (integer)
@@ -377,21 +393,47 @@ def main():
     threshold = 0.00
     neighbourhood_size = (footprintFreq,footprintTime)
 
-    vis = True
-    plotOK = True
+    # Setup paths and names for file
+    dataDir = '/home/timb/camcan/proc_data/TaskSensorAnalysis_transdef'
+    outDir = os.path.join('/home/timb/camcan/spectralEvents', subjectID)
+    epochFifFilename = 'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo.fif'
+    spectralEventsCSV = "".join([channelName, '_spectral_events_-1.0to1.0s.csv'])
+    csvFile = os.path.join(outDir, spectralEventsCSV)
+    logFile = os.path.join(outDir, "".join([channelName, '_', str(fmin), '-', str(fmax), 'Hz', '_', str(fstep),
+                                            'Hzstep_get_spectral_events.log']))
+
+    plotOK = False
 
     ################################
     # Processing starts here
+    logger.info(subjectID)
+    # Make the filename with path
+    epochFif = os.path.join(dataDir, subjectID, epochFifFilename)
 
-    dfs = []
-    for subjectID in subjects:
+    if os.path.exists(epochFif):
 
-        print(subjectID)
-        # Make the filename with path
-        epochFif = os.path.join(dataDir, subjectID, epochFifFilename)
+        # Make output file folder
+        if not os.path.exists(outDir):
+            os.makedirs(outDir)
+
+        # Setup log file for standarda output and error
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(message)s',
+            filename=logFile,
+            filemode='w'
+        )
+        '''
+        stdout_logger = logging.getLogger('STDOUT')
+        sl = StreamToLogger(stdout_logger, logging.INFO)
+        sys.stdout = sl
+        stderr_logger = logging.getLogger('STDERR')
+        sl = StreamToLogger(stderr_logger, logging.ERROR)
+        sys.stderr = sl
+        '''
 
         # Read the epochs
-        epochs = mne.read_epochs(epochFif, verbose=False)
+        epochs = mne.read_epochs(epochFif)
         Fs = epochs.info['sfreq']
 
         # Extract the data
@@ -403,7 +445,7 @@ def main():
         fVec = np.arange(fmin, fmax+1, fstep)
 
         # Make a TFR for each epoch [trials x frequency x time]
-        print('Calculating TFRs')
+        logger.info('Calculating TFRs')
         TFR, tVec, fVec = spectralevents_ts2tfr(epochData.T,fVec,Fs,width)
 
         # Vector of times in TFR [s]
@@ -414,30 +456,36 @@ def main():
         classLabels = [1 for x in range(numTrials)]
 
         # Find spectral events based on TFR
-        print('Finding Spectral Events')
-        spectralEvents = spectralevents_find (findMethod, thrFOM, tVec, 
+        logger.info('Finding Spectral Events')
+        spectralEvents = spectralevents_find (findMethod, thrFOM, tVec,
             fVec, TFR, classLabels, neighbourhood_size, threshold, Fs)
-        print('Found ' + str(len(spectralEvents)) + ' spectral events.')
+        logger.info('Found ' + str(len(spectralEvents)) + ' spectral events.')
 
         # Write data to a CSV file
-        print('Writing event characteristics to file')
+        logger.info('Writing event characteristics to file')
         df = pd.DataFrame(spectralEvents)
         df['Subject ID'] = subjectID
-        dfs.append(df)
-
-    csvFile = os.path.join(dataDir, spectralEventsCSV)
-    allDfs = pd.concat(dfs)
-    allDfs.to_csv(csvFile)
- 
-    if plotOK:
-        df1 = allDfs[allDfs['Outlier Event']==True]
-        sns.jointplot(x='Peak Time', y='Peak Frequency', data=df1, kind='hex')
-        plt.show()
+        df.to_csv(csvFile)
 
 
 if __name__ == "__main__":
 
-    main()
+    # Find subjects to be analysed
+    homeDir = os.path.expanduser("~")
+    dataDir = homeDir + '/camcan/'
+    camcanCSV = dataDir + 'proc_data/oneCSVToRuleThemAll.csv'
+    subjectData = pd.read_csv(camcanCSV)
+
+    # Take only subjects with more than 55 epochs
+    subjectData = subjectData[subjectData['numEpochs'] > 55]
+    subjectIDs = subjectData['SubjectID'].tolist()
+
+    # Set up the parallel task pool to use all available processors
+    count = int(np.round(mp.cpu_count()*1/3))
+    pool = mp.Pool(processes=count)
+
+    # Run the jobs
+    pool.map(get_spectral_events, subjectIDs)
 
 
 
