@@ -17,10 +17,8 @@ import multiprocessing as mp
 import warnings
 
 
-def read_spectral_events(subjectID):
+def read_spectral_events(subjectID, channelName):
     """Top-level run script for finding spectral events in MEG data."""
-
-    channelName = 'MEG0711'
 
     # Setup paths and names for file
     dataDir = os.path.join('/home/timb/camcan/spectralEvents', subjectID)
@@ -33,7 +31,10 @@ def read_spectral_events(subjectID):
     # Keep only outlier events
     df = df[df['Outlier Event']]
 
-    return df
+    if len(df) > 0:
+        return df
+    else:
+        return []
 
 if __name__ == "__main__":
 
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     subjectData = pd.read_csv(camcanCSV)
 
     # File to write
-    channelName = 'MEG0711'
+    channelName = 'betaERD_ROI'
     allSubjectsCSV = os.path.join(dataDir, 'spectralEvents', "".join([channelName, '_spectral_events_-1.0to1.0s.csv']))
 
     # Take only subjects with more than 55 epochs
@@ -54,7 +55,8 @@ if __name__ == "__main__":
     # Read all CSVs with spectral events (only outlier events are included)
     allDfs = []
     for subjectID in subjectIDs:
-        allDfs.append(read_spectral_events(subjectID))
+        allDfs.append(read_spectral_events(subjectID, channelName))
+    print(len(allDfs))
 
     # Concatenate all events to one list
     allDf = pd.concat(allDfs)

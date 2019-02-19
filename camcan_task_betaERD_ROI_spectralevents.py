@@ -504,7 +504,7 @@ if __name__ == "__main__":
     subjectData = pd.read_csv(camcanCSV)
 
     # Take only subjects with more than 55 epochs
-    subjectData = subjectData[subjectData['numEpochs'] > 55][0:10]
+    subjectData = subjectData[subjectData['numEpochs'] > 55]
     subjectIDs = subjectData['SubjectID'].tolist()
 
     # Set up the parallel task pool to use all available processors
