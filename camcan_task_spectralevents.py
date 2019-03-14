@@ -395,8 +395,6 @@ def get_spectral_events(subjectID):
     # Factors of Median threshold (see Shin et al. eLife 2017 for details concerning this value)
     thrFOM = 6 
 
-    tmin = -1.0     # seconds
-    tmax = 1.0     # seconds
     fmin = 1        # Hertz (integer)
     fmax = 60       # Hertz (integer)
     fstep = 1       # Hertz (integer)
@@ -452,9 +450,9 @@ def get_spectral_events(subjectID):
         Fs = epochs.info['sfreq']
 
         # Extract the data
-        epochs.crop(tmin, tmax)
         epochs.pick_channels([channelName])
         epochData = np.squeeze(epochs.get_data())
+        tmin = epochs.times[0]
 
         # Vector of frequencies in TFR [Hz]
         fVec = np.arange(fmin, fmax+1, fstep)
