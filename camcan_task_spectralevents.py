@@ -212,7 +212,7 @@ def spectralevents_find (findMethod, thrFOM, tVec, fVec, TFR, classLabels, neigh
     if findMethod == 1:
         spectralEvents = find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabels, medianPower, neighbourhood_size, threshold, Fs)
     elif findMethod == 2:
-        spectralEvents = find_localmax_method_1 # HACK!!!!
+        spectralEvents = find_localmax_method_2 # HACK!!!!
     elif findMethod == 3:
         spectralEvents = find_localmax_method_3 # HACK!!!!
 
@@ -221,67 +221,82 @@ def spectralevents_find (findMethod, thrFOM, tVec, fVec, TFR, classLabels, neigh
 def fwhm_lower_upper_bound1(vec, peakInd, peakValue):
     # Function to find the lower and upper indices within which the vector is less than the FWHM
     #   with some rather complicated boundary rules (Shin, eLife, 2017)
-    fwhm = vec < peakValue/2
-    lm_underthr = np.where(fwhm)[0]
-    # Indices of frequencies below the FWHM
-    belowFWHM = np.where(lm_underthr < peakInd)[0]
-    # Indices of frequencies above the FWHM
-    aboveFWHM = np.where(lm_underthr > peakInd)[0]
+    halfMax = peakValue/2
 
-    # Does the FWHM include the lower bound?
-    noLowerEdge = len(belowFWHM) == 0
-    # Does the FWHM include the upper cound?
-    noUpperEdge = len(aboveFWHM) == 0
+    # Extract data before the peak only (data should be rising at the end of the new array)
+    vec1 = vec[0:peakInd]
+    # Find indices less than half the max
+    vec1_underThreshold = np.where(vec1<halfMax)[0]
+    if len(vec1_underThreshold)==0:
+        # There are no indices less than half the max, so we have to estimate the lower edge
+        estimateLowerEdge = True
+    else:
+        # There are indices less than half the max, take the last one under halfMax as the lower edge
+        estimateLowerEdge = False
+        lowerEdgeIndex = vec1_underThreshold[-1]
 
-    if not noLowerEdge:
-        if not noUpperEdge:
+    # Extract data following the peak only (data should be falling at the start of the new array)
+    vec2 = vec[peakInd:]
+    # Find indices less than half the max
+    vec2_underThreshold = np.where(vec2<halfMax)[0]
+    if len(vec2_underThreshold)==0:
+        # There are no indices less than half the max, so we have to estimate the upper edge
+        estimateUpperEdge = True
+    else:
+        # There are indices less than half the max, take the first one under halfMax as the upper edge
+        estimateUpperEdge = False
+        upperEdgeIndex = vec2_underThreshold[0] + len(vec1)
+
+    if not estimateLowerEdge:
+        if not estimateUpperEdge:
             # FWHM fits in the range, so pick off the edges of the FWHM
-            lowerInd = lm_underthr[belowFWHM[-1]+1]
-            upperInd = lm_underthr[aboveFWHM[0]-1]
-            FWHM = upperInd - lowerInd + 1
-        if noUpperEdge:
+            lowerInd = lowerEdgeIndex
+            upperInd = upperEdgeIndex
+            FWHM = upperInd - lowerInd
+        if estimateUpperEdge:
             # FWHM fits in on the low end, but hits the edge on the high end
-            lowerInd = lm_underthr[belowFWHM[-1]]
+            lowerInd = lowerEdgeIndex
             upperInd = len(vec)-1
             FWHM = 2 * (peakInd - lowerInd + 1)
     else:
-        if not noUpperEdge:
+        if not estimateUpperEdge:
             # FWHM hits the edge on the low end, but fits on the high end
             lowerInd = 0
-            upperInd = lm_underthr[aboveFWHM[0]]
+            upperInd = upperEdgeIndex
             FWHM = 2 * (upperInd - peakInd + 1)
-        if noUpperEdge:
+        if estimateUpperEdge:
             # FWHM hits the edge on the low end and the high end
             lowerInd = 0
             upperInd = len(vec)-1
-            FWHM = 2 * (upperInd - lowerInd + 1)
+            FWHM = 2*len(vec)
 
     '''
     plt.plot(vec)
     plt.axhline(y=peakValue)
-    plt.axvline(x=lowerInd)
-    plt.axvline(x=upperInd)
+    plt.axvline(x=lowerInd, color='#aa0000')
+    plt.axvline(x=upperInd, color='#00aa00')
     plt.scatter(peakInd,peakValue)
     plt.show()
     '''
 
     return lowerInd, upperInd, FWHM
 
-def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabels, medianPower, neighbourhood_size, threshold, Fs):
-    # 1st event-finding method (primary event detection method in Shin et 
-    # al. eLife 2017): Find spectral events by first retrieving all local 
-    # maxima in un-normalized TFR using imregionalmax, then selecting 
-    # suprathreshold peaks within the frequency band of interest. This 
-    # method allows for multiple, overlapping events to occur in a given 
-    # suprathreshold region and does not guarantee the presence of 
-    # within-band, suprathreshold activity in any given trial will render 
+def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabels, medianPower, neighbourhood_size,
+                           threshold, Fs):
+    # 1st event-finding method (primary event detection method in Shin et
+    # al. eLife 2017): Find spectral events by first retrieving all local
+    # maxima in un-normalized TFR using imregionalmax, then selecting
+    # suprathreshold peaks within the frequency band of interest. This
+    # method allows for multiple, overlapping events to occur in a given
+    # suprathreshold region and does not guarantee the presence of
+    # within-band, suprathreshold activity in any given trial will render
     # an event.
 
-    # spectralEvents: 12 column matrix for storing local max event metrics: 
-    #        trial index,            hit/miss,         maxima frequency, 
-    #        lowerbound frequency,     upperbound frequency, 
-    #        frequency span,         maxima timing,     event onset timing, 
-    #        event offset timing,     event duration, maxima power, 
+    # spectralEvents: 12 column matrix for storing local max event metrics:
+    #        trial index,            hit/miss,         maxima frequency,
+    #        lowerbound frequency,     upperbound frequency,
+    #        frequency span,         maxima timing,     event onset timing,
+    #        event offset timing,     event duration, maxima power,
     #        maxima/median power
     # Number of elements in discrete frequency spectrum
     flength = TFR.shape[1]
@@ -290,14 +305,14 @@ def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabe
     # Number of trials
     numTrials = TFR.shape[0]
 
-    spectralEvents = [];
+    spectralEvents = []
 
     # Retrieve all local maxima in TFR using python equivalent of imregionalmax
     for ti in range(numTrials):
 
         # Get TFR data for this trial [frequency x time]
-        thisTFR = TFR[ti,:,:]
-        
+        thisTFR = TFR[ti, :, :]
+
         # Find local maxima in the TFR data
         data = thisTFR
         data_max = filters.maximum_filter(data, neighbourhood_size)
@@ -306,7 +321,7 @@ def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabe
         diff = ((data_max - data_min) > threshold)
         maxima[diff == 0] = 0
         labeled, num_objects = ndimage.label(maxima)
-        xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects+1)))
+        xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects + 1)))
 
         numPeaks = len(xy)
 
@@ -318,37 +333,36 @@ def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabe
             peakT.append(int(thisXY[1]))
             peakPower.append(thisTFR[peakF[-1], peakT[-1]])
 
-        #Find local maxima lowerbound, upperbound, and full width at half max
+        # Find local maxima lowerbound, upperbound, and full width at half max
         #    for both frequency and time
         Ffwhm = []
         Tfwhm = []
         for lmi in range(numPeaks):
-
             thisPeakF = peakF[lmi]
             thisPeakT = peakT[lmi]
             thisPeakPower = peakPower[lmi]
 
             # Indices of TFR frequencies < half max power at the time of a given local peak
-            TFRFrequencies = thisTFR[:,thisPeakT]
-            lowerInd, upperInd, FWHM = fwhm_lower_upper_bound1(TFRFrequencies, 
-                thisPeakF, thisPeakPower)
+            TFRFrequencies = thisTFR[:, thisPeakT]
+            lowerInd, upperInd, FWHM = fwhm_lower_upper_bound1(TFRFrequencies,
+                                                               thisPeakF, thisPeakPower)
             lowerEdgeFreq = fVec[lowerInd]
             upperEdgeFreq = fVec[upperInd]
             FWHMFreq = FWHM
 
-            # Indices of TFR times < half max power at the time of a given local peak
+            # Indices of TFR times < half max power at the frequency of a given local peak
             TFRTimes = thisTFR[thisPeakF, :]
-            lowerInd, upperInd, FWHM = fwhm_lower_upper_bound1(TFRTimes, 
-                thisPeakT, thisPeakPower)
+            lowerInd, upperInd, FWHM = fwhm_lower_upper_bound1(TFRTimes,
+                                                               thisPeakT, thisPeakPower)
             lowerEdgeTime = tVec[lowerInd]
             upperEdgeTime = tVec[upperInd]
-            FWHMTime = FWHM/Fs
+            FWHMTime = FWHM / Fs
 
             # Put peak characteristics to a dictionary
-            #        trial index,            hit/miss,         maxima frequency, 
-            #        lowerbound frequency,     upperbound frequency, 
-            #        frequency span,         maxima timing,     event onset timing, 
-            #        event offset timing,     event duration, maxima power, 
+            #        trial index,            hit/miss,         maxima frequency,
+            #        lowerbound frequency,     upperbound frequency,
+            #        frequency span,         maxima timing,     event onset timing,
+            #        event offset timing,     event duration, maxima power,
             #        maxima/median power
             peakParameters = {
                 'Trial': ti,
@@ -362,21 +376,22 @@ def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabe
                 'Event Offset Time': upperEdgeTime,
                 'Event Duration': FWHMTime,
                 'Peak Power': thisPeakPower,
-                'Normalized Peak Power': thisPeakPower/medianPower[thisPeakF],
+                'Normalized Peak Power': thisPeakPower / medianPower[thisPeakF],
                 'Outlier Event': thisPeakPower > eventThresholdByFrequency[thisPeakF]
-                }
+            }
 
-             # Build a list of dictionaries 
+            # Build a list of dictionaries
             spectralEvents.append(peakParameters)
 
     return spectralEvents
+
 
 def get_spectral_events(subjectID):
     """Top-level run script for finding spectral events in MEG data."""
 
     # Event-finding method (1 allows for maximal overlap while 2 limits overlap in each respective suprathreshold region)
     #   Only method 1 is implemented so far
-    findMethod = 1     
+    findMethod = 1  # Method 4 is a potential fix of method 1 (which gives negative durations and freq spans)
     # Factors of Median threshold (see Shin et al. eLife 2017 for details concerning this value)
     thrFOM = 6 
 
@@ -486,6 +501,10 @@ if __name__ == "__main__":
 
     # Run the jobs
     pool.map(get_spectral_events, subjectIDs)
+
+    # Or run one subject for testing purposes
+    #get_spectral_events(subjectIDs[0])
+
 
 
 
