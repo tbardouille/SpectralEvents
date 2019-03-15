@@ -12,6 +12,7 @@ from mne.beamformer import make_dics, apply_dics_csd
 from mne.time_frequency import tfr_morlet
 import multiprocessing as mp
 
+mne.set_log_level('WARNING')
 
 def make_BF_map(subjectID):
     """Top-level run script for making spectral events BF map from MEG data."""
@@ -78,7 +79,7 @@ def make_BF_map(subjectID):
     df2 = df1.drop(df1[df1['Lower Frequency Bound'] < fmin].index)
     df3 = df2.drop(df2[df2['Upper Frequency Bound'] > fmax].index)
     df4 = df3.drop(df3[df3['Event Offset Time'] > endTime].index)
-    newDf = df4.drop(df4[df3['Event Onset Time'] < startTime].index)
+    newDf = df4.drop(df4[df4['Event Onset Time'] < startTime].index)
 
     if plotOK:
         # Raster plot of event onset and offset times
@@ -111,15 +112,14 @@ def make_BF_map(subjectID):
         epochList.append(epochCrop)
 
     epochs = mne.concatenate_epochs(epochList)
-
+    epochs.pick_types(meg=True)
 
     '''
     # Let's look at the TFR across sensors
     magPicks = mne.pick_types(epochs.info, meg='mag', eeg=False, eog=False, stim=False, exclude='bads')
-    epochs_no_evoked = epochs.copy().subtract_evoked()
     freqs = np.arange(TFRfmin, TFRfmax, TFRfstep)
     n_cycles = freqs / 2.0
-    power, _ = tfr_morlet(epochs_no_evoked, freqs=freqs, n_cycles=n_cycles, picks=magPicks,
+    power, _ = tfr_morlet(epochs, freqs=freqs, n_cycles=n_cycles, picks=magPicks,
                           use_fft=False, return_itc=True, decim=1, n_jobs=1)
     #power.save(tfrFile, overwrite=True)
     if plotOK:
@@ -139,10 +139,12 @@ def make_BF_map(subjectID):
 
     # Compute DICS spatial filter and estimate source power.
     stcs = []
+    epochsMAG = epochs.copy()
+    epochsMAG.pick_types(meg='mag')
     for tmin in tmins:
-        csd = csd_morlet(epochs, tmin=tmin, tmax=tmin + tstep, decim=data_decimation,
+        csd = csd_morlet(epochsMAG, tmin=tmin, tmax=tmin + tstep, decim=data_decimation,
                          frequencies=np.linspace(fmin, fmax, numFreqBins))
-        filters = make_dics(epochs.info, forward, csd, reg=DICS_regularizaion)
+        filters = make_dics(epochsMAG.info, forward, csd, reg=DICS_regularizaion)
         stc, freqs = apply_dics_csd(csd, filters)
         stcs.append(stc)
 
@@ -153,7 +155,11 @@ def make_BF_map(subjectID):
     ERSband = ERSstc.mean()
     ERSband.save(stcFile)
 
-    ERSmorph = ERSband.morph(subject_to='fsaverage', subject_from='sub-' + subjectID, subjects_dir=subjectsDir)
+    #ERSmorph = ERSband.morph(subject_to='fsaverage', subject_from='sub-' + subjectID, subjects_dir=subjectsDir)
+    morph = mne.compute_source_morph(ERSband, subject_from='sub-' + subjectID,
+                                     subject_to='fsaverage',
+                                     subjects_dir=subjectsDir)
+    ERSmorph = morph.apply(ERSband)
     ERSmorph.save(stcMorphFile)
 
 if __name__ == "__main__":
@@ -173,8 +179,8 @@ if __name__ == "__main__":
     pool = mp.Pool(processes=count)
 
     # Run the jobs
-    #pool.map(make_BF_map, subjectIDs)
+    pool.map(make_BF_map, subjectIDs)
 
     # Or run one subject for testing purposes
-    make_BF_map(subjectIDs[1])
+    #make_BF_map(subjectIDs[3])
 
