@@ -11,6 +11,7 @@ from mne.time_frequency import csd_morlet
 from mne.beamformer import make_dics, apply_dics_csd
 from mne.time_frequency import tfr_morlet
 import multiprocessing as mp
+import time
 
 mne.set_log_level('WARNING')
 
@@ -25,7 +26,7 @@ def make_BF_map(subjectID):
     # BF Analysis Paramaters
     fmin = 12
     fmax = 30
-    startTime = -1.3
+    startTime = -1.1
     endTime = 0.
     eventDuration = 0.4 # See distplot below for justification
 
@@ -35,7 +36,7 @@ def make_BF_map(subjectID):
     TFRfstep = 5
 
     # DICS Settings
-    tmins = [0.0, -0.4] # Start of each window (active, baseline)
+    tmins = [0.0, -0.6] # Start of each window (active, baseline)
     tstep = 0.4
     fmin = 15
     fmax = 30
@@ -105,7 +106,7 @@ def make_BF_map(subjectID):
         thisDf = newDf.iloc[e]
         onsetTime = thisDf['Event Onset Time']
         epoch = originalEpochs[thisDf['Trial']]
-        epochCrop = epoch.crop(onsetTime-eventDuration, onsetTime+eventDuration)
+        epochCrop = epoch.crop(onsetTime+tmins[1], onsetTime-tmins[1])
         epochCrop = epochCrop.apply_baseline(baseline=(None,None))
         # Fix epochCrops times array to be the same every time = (-.4, .4)
         epochCrop.shift_time(tmins[1], relative=False)
@@ -175,7 +176,7 @@ if __name__ == "__main__":
     subjectIDs = subjectData['SubjectID'].tolist()
 
     # Set up the parallel task pool to use all available processors
-    count = int(np.round(mp.cpu_count()*1/3))
+    count = int(np.round(mp.cpu_count()*1/4))
     pool = mp.Pool(processes=count)
 
     # Run the jobs
