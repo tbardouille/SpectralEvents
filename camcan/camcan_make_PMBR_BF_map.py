@@ -26,8 +26,8 @@ def make_BF_map(subjectID):
     channelName = 'MEG0711'
 
     # Analysis Paramaters for Picking Transient Events
-    startTime = 0.5         # earliest time that an event can start to be included
-    endTime = 1.1           # latest time that an event can start to be included
+    startTime = 0.4         # earliest time that an event can start to be included
+    endTime = 1.3           # latest time that an event can start to be included
     fmin = 15               # NOTE: this timing behaviour is different than the prestim code
     fmax = 30
 
@@ -100,12 +100,13 @@ def make_BF_map(subjectID):
 
     # Re-calculate epochs to have one per spectral event
     numEvents = len(newDf)
+    #print(str(numEvents) + ' events')
     epochList = []
     for e in np.arange(numEvents):
         thisDf = newDf.iloc[e]
         onsetTime = thisDf['Event Onset Time']
         epoch = originalEpochs[thisDf['Trial']]
-        epochCrop = epoch.crop(onsetTime+tmins[1], onsetTime-tmins[1])
+        epochCrop = epoch.crop(onsetTime+tmins[1], onsetTime+tstep)
         epochCrop = epochCrop.apply_baseline(baseline=(None,None))
         # Fix epochCrops times array to be the same every time = (-.4, .4)
         epochCrop.shift_time(tmins[1], relative=False)
@@ -179,8 +180,8 @@ if __name__ == "__main__":
     pool = mp.Pool(processes=count)
 
     # Run the jobs
-    #pool.map(make_BF_map, subjectIDs)
+    pool.map(make_BF_map, subjectIDs)
 
     # Or run one subject for testing purposes
-    make_BF_map(subjectIDs[0])
+    #make_BF_map(subjectIDs[1])
 
