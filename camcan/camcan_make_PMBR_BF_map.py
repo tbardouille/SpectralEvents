@@ -67,101 +67,111 @@ def make_BF_map(subjectID):
                            'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_PMBREvents_DICS')
     stcMorphFile = os.path.join(outDir,
                                 'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_PMBREvents_DICS_fsaverage')
+    testCompleteFile = os.path.join(outDir,
+                           'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_PMBREvents_DICS-lh.stc')
 
-    #####################################
-    # Pull events from CSV
+    if os.path.exists(testCompleteFile):
 
-    # Read all transient events for subject
-    df = pd.read_csv(csvFile)
-    # Events that meet Shin criteria only
-    df1 = df[df['Outlier Event']]
-    # Freq range of interest
-    df2 = df1.drop(df1[df1['Lower Frequency Bound'] < fmin].index)
-    df3 = df2.drop(df2[df2['Upper Frequency Bound'] > fmax].index)
-    df4 = df3.drop(df3[df3['Event Onset Time'] > endTime].index)
-    newDf = df4.drop(df4[df4['Event Onset Time'] < startTime].index)
+        return
 
-    if plotOK:
-        # Raster plot of event onset and offset times
-        ax = sns.scatterplot(x='Event Onset Time', y='Trial', data=newDf)
-        sns.scatterplot(x='Event Offset Time', y='Trial', data=newDf, ax=ax)
-        plt.show()
+    else:
 
-        # Distribution of event durations
-        sns.distplot(newDf['Event Duration'])
-        plt.show()
-        # Based on the distribution, an interval of 0-400 ms will include the full event duration in most cases
+        #####################################
+        # Pull events from CSV
 
-    ##############################################
-    # Now do the DICS beamformer map calcaulation
+        # Read all transient events for subject
+        df = pd.read_csv(csvFile)
+        # Events that meet Shin criteria only
+        df1 = df[df['Outlier Event']]
+        # Freq range of interest
+        df2 = df1.drop(df1[df1['Lower Frequency Bound'] < fmin].index)
+        df3 = df2.drop(df2[df2['Upper Frequency Bound'] > fmax].index)
+        df4 = df3.drop(df3[df3['Event Onset Time'] > endTime].index)
+        newDf = df4.drop(df4[df4['Event Onset Time'] < startTime].index)
 
-    # Read epochs
-    originalEpochs = mne.read_epochs(epochFif)
+        if plotOK:
+            # Raster plot of event onset and offset times
+            ax = sns.scatterplot(x='Event Onset Time', y='Trial', data=newDf)
+            sns.scatterplot(x='Event Offset Time', y='Trial', data=newDf, ax=ax)
+            plt.show()
 
-    # Re-calculate epochs to have one per spectral event
-    numEvents = len(newDf)
-    #print(str(numEvents) + ' events')
-    epochList = []
-    for e in np.arange(numEvents):
-        thisDf = newDf.iloc[e]
-        onsetTime = thisDf['Event Onset Time']
-        epoch = originalEpochs[thisDf['Trial']]
-        epochCrop = epoch.crop(onsetTime+tmins[1], onsetTime+tstep)
-        epochCrop = epochCrop.apply_baseline(baseline=(None,None))
-        # Fix epochCrops times array to be the same every time = (-.4, .4)
-        epochCrop.shift_time(tmins[1], relative=False)
-        epochList.append(epochCrop)
+            # Distribution of event durations
+            sns.distplot(newDf['Event Duration'])
+            plt.show()
+            # Based on the distribution, an interval of 0-400 ms will include the full event duration in most cases
 
-    epochs = mne.concatenate_epochs(epochList)
-    epochs.pick_types(meg=True)
+        ##############################################
+        # Now do the DICS beamformer map calcaulation
 
-    '''
-    # Let's look at the TFR across sensors
-    magPicks = mne.pick_types(epochs.info, meg='mag', eeg=False, eog=False, stim=False, exclude='bads')
-    freqs = np.arange(TFRfmin, TFRfmax, TFRfstep)
-    n_cycles = freqs / 2.0
-    power, _ = tfr_morlet(epochs, freqs=freqs, n_cycles=n_cycles, picks=magPicks,
-                          use_fft=False, return_itc=True, decim=1, n_jobs=1)
-    #power.save(tfrFile, overwrite=True)
-    if plotOK:
-        power.plot_joint(baseline=(-0.4, 0), mode='mean',
-                         timefreqs = [(.2, 20)])
-    '''
+        # Read epochs
+        originalEpochs = mne.read_epochs(epochFif)
 
-    # Read source space
-    src = mne.read_source_spaces(srcFif)
-    # Make forward solution
-    forward = mne.make_forward_solution(epochs.info,
-                                        trans=transFif, src=src, bem=bemFif,
-                                        meg=True, eeg=False)
+        # Re-calculate epochs to have one per spectral event
+        numEvents = len(newDf)
+        #print(str(numEvents) + ' events')
+        epochList = []
+        for e in np.arange(numEvents):
+            thisDf = newDf.iloc[e]
+            onsetTime = thisDf['Event Onset Time']
+            epoch = originalEpochs[thisDf['Trial']]
+            epochCrop = epoch.crop(onsetTime+tmins[1], onsetTime+tstep)
+            epochCrop = epochCrop.apply_baseline(baseline=(None,None))
+            # Fix epochCrops times array to be the same every time = (-.4, .4)
+            epochCrop.shift_time(tmins[1], relative=False)
+            epochList.append(epochCrop)
 
-    # DICS Source Power example
-    # https://martinos.org/mne/stable/auto_examples/inverse/plot_dics_source_power.html#sphx-glr-auto-examples-inverse-plot-dics-source-power-py
+        epochs = mne.concatenate_epochs(epochList)
+        epochs.pick_types(meg=True)
 
-    # Compute DICS spatial filter and estimate source power.
-    stcs = []
-    epochsMAG = epochs.copy()
-    epochsMAG.pick_types(meg='mag')
-    for tmin in tmins:
-        csd = csd_morlet(epochsMAG, tmin=tmin, tmax=tmin + tstep, decim=data_decimation,
-                         frequencies=np.linspace(fmin, fmax, numFreqBins))
-        filters = make_dics(epochsMAG.info, forward, csd, reg=DICS_regularizaion)
-        stc, freqs = apply_dics_csd(csd, filters)
-        stcs.append(stc)
+        '''
+        # Let's look at the TFR across sensors
+        magPicks = mne.pick_types(epochs.info, meg='mag', eeg=False, eog=False, stim=False, exclude='bads')
+        freqs = np.arange(TFRfmin, TFRfmax, TFRfstep)
+        n_cycles = freqs / 2.0
+        power, _ = tfr_morlet(epochs, freqs=freqs, n_cycles=n_cycles, picks=magPicks,
+                              use_fft=False, return_itc=True, decim=1, n_jobs=1)
+        #power.save(tfrFile, overwrite=True)
+        if plotOK:
+            power.plot_joint(baseline=(-0.4, 0), mode='mean',
+                             timefreqs = [(.2, 20)])
+        '''
 
-    # Take difference between active and baseline, and mean across frequencies
-    ERS = np.log2(stcs[0].data / stcs[1].data)
-    a = stcs[0]
-    ERSstc = mne.SourceEstimate(ERS, vertices=a.vertices, tmin=a.tmin, tstep=a.tstep, subject=a.subject)
-    ERSband = ERSstc.mean()
-    ERSband.save(stcFile)
+        # Read source space
+        src = mne.read_source_spaces(srcFif)
+        # Make forward solution
+        forward = mne.make_forward_solution(epochs.info,
+                                            trans=transFif, src=src, bem=bemFif,
+                                            meg=True, eeg=False)
 
-    #ERSmorph = ERSband.morph(subject_to='fsaverage', subject_from='sub-' + subjectID, subjects_dir=subjectsDir)
-    morph = mne.compute_source_morph(ERSband, subject_from='sub-' + subjectID,
-                                     subject_to='fsaverage',
-                                     subjects_dir=subjectsDir)
-    ERSmorph = morph.apply(ERSband)
-    ERSmorph.save(stcMorphFile)
+        # DICS Source Power example
+        # https://martinos.org/mne/stable/auto_examples/inverse/plot_dics_source_power.html#sphx-glr-auto-examples-inverse-plot-dics-source-power-py
+
+        # Compute DICS spatial filter and estimate source power.
+        stcs = []
+        epochsMAG = epochs.copy()
+        epochsMAG.pick_types(meg='mag')
+        for tmin in tmins:
+            csd = csd_morlet(epochsMAG, tmin=tmin, tmax=tmin + tstep, decim=data_decimation,
+                             frequencies=np.linspace(fmin, fmax, numFreqBins))
+            filters = make_dics(epochsMAG.info, forward, csd, reg=DICS_regularizaion)
+            stc, freqs = apply_dics_csd(csd, filters)
+            stcs.append(stc)
+
+        # Take difference between active and baseline, and mean across frequencies
+        ERS = np.log2(stcs[0].data / stcs[1].data)
+        a = stcs[0]
+        ERSstc = mne.SourceEstimate(ERS, vertices=a.vertices, tmin=a.tmin, tstep=a.tstep, subject=a.subject)
+        ERSband = ERSstc.mean()
+        ERSband.save(stcFile)
+
+        #ERSmorph = ERSband.morph(subject_to='fsaverage', subject_from='sub-' + subjectID, subjects_dir=subjectsDir)
+        morph = mne.compute_source_morph(ERSband, subject_from='sub-' + subjectID,
+                                         subject_to='fsaverage',
+                                         subjects_dir=subjectsDir)
+        ERSmorph = morph.apply(ERSband)
+        ERSmorph.save(stcMorphFile)
+
+        return
 
 if __name__ == "__main__":
 
@@ -173,6 +183,12 @@ if __name__ == "__main__":
 
     # Take only subjects with more than 55 epochs
     subjectData = subjectData[subjectData['numEpochs'] > 55]
+
+    # Drop subjects with MR files missing
+    subjectData = subjectData.drop(subjectData[subjectData['bemExists'] == False].index)
+    subjectData = subjectData.drop(subjectData[subjectData['srcExists'] == False].index)
+    subjectData = subjectData.drop(subjectData[subjectData['transExists'] == False].index)
+
     subjectIDs = subjectData['SubjectID'].tolist()
 
     # Set up the parallel task pool to use all available processors
@@ -184,4 +200,5 @@ if __name__ == "__main__":
 
     # Or run one subject for testing purposes
     #make_BF_map(subjectIDs[1])
+    #make_BF_map('CC120319')
 
