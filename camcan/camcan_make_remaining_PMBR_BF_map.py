@@ -204,6 +204,6 @@ if __name__ == "__main__":
     pool.map(make_BF_map, subjectIDs)
 
     # Or run one subject for testing purposes
-    #make_BF_map(subjectIDs[1])
+    #make_BF_map(subjectIDs[0])
     #make_BF_map('CC120319')
 
