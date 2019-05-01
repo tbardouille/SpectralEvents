@@ -181,26 +181,27 @@ if __name__ == "__main__":
     # Find subjects to be analysed
     homeDir = os.path.expanduser("~")
     dataDir = homeDir + '/camcan/'
-    camcanCSV = dataDir + 'proc_data/oneCSVToRuleThemAll.csv'
+    camcanCSV = dataDir + 'spectralEvents/spectralEventAnalysis.csv'
     subjectData = pd.read_csv(camcanCSV)
 
     # Take only subjects with more than 55 epochs
     subjectData = subjectData[subjectData['numEpochs'] > 55]
 
-    # Drop subjects with MR files missing
+    # Drop subjects with PMBR stc already made
     subjectData = subjectData.drop(subjectData[subjectData['bemExists'] == False].index)
     subjectData = subjectData.drop(subjectData[subjectData['srcExists'] == False].index)
     subjectData = subjectData.drop(subjectData[subjectData['transExists'] == False].index)
+    subjectData = subjectData.drop(subjectData[subjectData['PMBR Stc Exists'] == True].index)
 
     subjectIDs = subjectData['SubjectID'].tolist()
+    print(len(subjectIDs))
 
     # Set up the parallel task pool to use all available processors
     count = int(np.round(mp.cpu_count()*1/4))
     pool = mp.Pool(processes=count)
 
     # Run the jobs
-    #pool.map(make_BF_map, subjectIDs)
-    pool.map(make_BF_map, ['CC120376'])
+    pool.map(make_BF_map, subjectIDs)
 
     # Or run one subject for testing purposes
     #make_BF_map(subjectIDs[1])
