@@ -24,8 +24,6 @@ def make_BF_map(subjectID):
     channelName = 'MEG0711'
 
     # BF Analysis Paramaters
-    fmin = 12
-    fmax = 30
     startTime = -1.1
     endTime = 0.
     eventDuration = 0.4 # See distplot below for justification
