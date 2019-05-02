@@ -15,8 +15,6 @@ import time
 
 mne.set_log_level('DEBUG')
 
-# Mapping the transient beta bursts that occur during the rebound interval
-
 def make_BF_map(subjectID):
     """Top-level run script for making spectral events BF map from MEG data."""
 
@@ -25,11 +23,10 @@ def make_BF_map(subjectID):
 
     channelName = 'MEG0711'
 
-    # Analysis Paramaters for Picking Transient Events
-    startTime = 0.4         # earliest time that an event can start to be included
-    endTime = 1.3           # latest time that an event can start to be included
-    fmin = 15               # NOTE: this timing behaviour is different than the prestim code
-    fmax = 30
+    # BF Analysis Paramaters
+    startTime = -1.1
+    endTime = 0.
+    eventDuration = 0.4 # See distplot below for justification
 
     # TFR analysis parameters
     TFRfmin = 5
@@ -37,8 +34,10 @@ def make_BF_map(subjectID):
     TFRfstep = 5
 
     # DICS Settings
-    tmins = [0.0, -0.6] # Start of each window (active, baseline) relative to event onset time
-    tstep = 0.4         # Duration of BF windows in seconds, based on distribution of event durations 
+    tmins = [0.0, -0.6] # Start of each window (active, baseline)
+    tstep = 0.4
+    fmin = 15
+    fmax = 30
     numFreqBins = 10  # linear spacing
     DICS_regularizaion = 0.5
     data_decimation = 1
@@ -58,7 +57,7 @@ def make_BF_map(subjectID):
     spectralEventsCSV = "".join([channelName, '_spectral_events_-1.0to1.0s.csv'])
     csvFile = os.path.join(outDir, spectralEventsCSV)
 
-    logFile = os.path.join(outDir, 'PMBREvents_DICS.log')
+    logFile = os.path.join(outDir, 'PreStimBetaEvents_DICS.log')
     mne.set_log_file(logFile, overwrite=True)
 
     transFif = subjectsDir + 'coreg/sub-' + subjectID + '-trans.fif'
@@ -67,11 +66,11 @@ def make_BF_map(subjectID):
 
     # Files to make
     stcFile = os.path.join(outDir,
-                           'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_PMBREvents_DICS')
+                           'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_preStimBetaEvents_DICS')
     stcMorphFile = os.path.join(outDir,
-                                'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_PMBREvents_DICS_fsaverage')
+                                'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_preStimBetaEvents_DICS_fsaverage')
     testCompleteFile = os.path.join(outDir,
-                           'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_PMBREvents_DICS-lh.stc')
+                           'transdef_transrest_mf2pt2_task_raw_buttonPress_duration=3.4s_cleaned-epo_preStimBetaEvents_DICS-lh.stc')
 
     if os.path.exists(testCompleteFile):
 
@@ -89,7 +88,7 @@ def make_BF_map(subjectID):
         # Freq range of interest
         df2 = df1.drop(df1[df1['Lower Frequency Bound'] < fmin].index)
         df3 = df2.drop(df2[df2['Upper Frequency Bound'] > fmax].index)
-        df4 = df3.drop(df3[df3['Event Onset Time'] > endTime].index)
+        df4 = df3.drop(df3[df3['Event Offset Time'] > endTime].index)
         newDf = df4.drop(df4[df4['Event Onset Time'] < startTime].index)
 
         if plotOK:
@@ -111,13 +110,12 @@ def make_BF_map(subjectID):
 
         # Re-calculate epochs to have one per spectral event
         numEvents = len(newDf)
-        #print(str(numEvents) + ' events')
         epochList = []
         for e in np.arange(numEvents):
             thisDf = newDf.iloc[e]
             onsetTime = thisDf['Event Onset Time']
             epoch = originalEpochs[thisDf['Trial']]
-            epochCrop = epoch.crop(onsetTime+tmins[1], onsetTime+tstep)
+            epochCrop = epoch.crop(onsetTime+tmins[1], onsetTime-tmins[1])
             epochCrop = epochCrop.apply_baseline(baseline=(None,None))
             # Fix epochCrops times array to be the same every time = (-.4, .4)
             epochCrop.shift_time(tmins[1], relative=False)
@@ -191,7 +189,7 @@ if __name__ == "__main__":
     subjectData = subjectData.drop(subjectData[subjectData['bemExists'] == False].index)
     subjectData = subjectData.drop(subjectData[subjectData['srcExists'] == False].index)
     subjectData = subjectData.drop(subjectData[subjectData['transExists'] == False].index)
-    subjectData = subjectData.drop(subjectData[subjectData['PMBR Stc Exists'] == True].index)
+    subjectData = subjectData.drop(subjectData[subjectData['PreStim Stc Exists'] == True].index)
 
     subjectIDs = subjectData['SubjectID'].tolist()
     print(len(subjectIDs))
