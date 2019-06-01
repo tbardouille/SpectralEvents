@@ -185,7 +185,7 @@ for subj_i=1:numSubj
         set(gca,'xticklabel',x_tick_labels)
         xlabel('s')
 
-        figureName = strcat('./test_data/results/matlab/prestim_humandetection_600hzMEG_subject', num2str(subj_i), '_class_', num2str(classes(cls_i)), '.png');
+        figureName = strcat('./test_results/matlab/prestim_humandetection_600hzMEG_subject', num2str(subj_i), '_class_', num2str(classes(cls_i)), '.png');
         saveas(gcf,figureName);
 
     end

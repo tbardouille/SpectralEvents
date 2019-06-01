@@ -6,6 +6,10 @@ import scipy.ndimage as ndimage
 import scipy.ndimage.filters as filters
 import matplotlib.pyplot as plt
 
+# TO DO: 
+# change _vis to work more generally (e.g., for one class)
+#
+
 def spectralevents_ts2tfr (S,fVec,Fs,width):
     # spectralevents_ts2tfr(S,fVec,Fs,width);
     #
@@ -347,19 +351,23 @@ def find_localmax_method_1(TFR, fVec, tVec, eventThresholdByFrequency, classLabe
 
     return spectralEvents
 
-def spectralevents_vis ( specEv, classLabels, timeseries, TFR, tVec, fVec, eventBand, dataSetNum ):
+def spectralevents_vis ( specEv, timeseries, TFR, TFR_norm, tVec, fVec, eventBand ):
 
     # Function to plot spectral events on test data (to check against Matlab code)
     #
     # specEv = spectral event characteristics 
     # timeseries = trials x time electrophysiological data
     # TFR = trials x frequency x time TFR of timeseries
+    # TFR = trials x frequency x time normalized TFR of timeseries
     # tVec = vector of time samples
     # fVec = vector of frequency bins
     # eventBand = vector with min and max frequency for spectral event mapping
-    # dataSetNum = identifier for this dataset
 
     numSampTrials = 10
+
+    numTrials = TFR.shape[0]
+    if numTrials < numSampTrials:
+        numSampTrials = numTrials
 
     # Find fVec elements in the band of interest
     a = fVec>=eventBand[0]
@@ -367,88 +375,60 @@ def spectralevents_vis ( specEv, classLabels, timeseries, TFR, tVec, fVec, event
     c = a*b
     eventBand_inds = np.where( c )
 
+    # Inter-trial average 
+    avgTFR = np.squeeze(np.mean(TFR,axis=0))
+    avgTFR_norm = np.squeeze(np.mean(TFR_norm,axis=0))
 
-    # Normalize the TFR data [tr x f x t] to the median value per frequency band 
-    numTrials, numFreqBins, numSamples = TFR.shape
-    TFR_order = np.transpose(TFR, axes=[1,0,2]) # [f x tr x t]
-    TFR_reshape = np.reshape(TFR_order, (numFreqBins, numTrials*numSamples))
-    TFRmeds = np.median(TFR_reshape, axis=1)        # f vector
-    TFRmeds_expanded = np.transpose(np.tile(TFRmeds, (numSamples,numTrials,1)), axes=[1,2,0])
-    TFR_norm = TFR/TFRmeds_expanded
+    ########################
+    # Plot TFR data
+    fig, axs = plt.subplots(nrows=numSampTrials+1, ncols=2)
 
-    # Extract event attributes for this test data 
-    classes = np.unique( specEv['Hit/Miss'].tolist() )
+    # Plot average TFR
+    im = axs[0,0].pcolor(tVec, fVec, avgTFR, cmap='jet')
+    fig.colorbar(im, ax=axs[0,0])
+    axs[0,0].invert_yaxis()
+    axs[0,0].axhline(y=eventBand[0])
+    axs[0,0].axhline(y=eventBand[1])
 
-    # Class loop
-    figs = []
-    for clss in classes: 
+    # Plot average normalized TFR
+    im = axs[0,1].pcolor(tVec, fVec, avgTFR_norm, cmap='jet')
+    fig.colorbar(im, ax=axs[0,1])
+    axs[0,1].invert_yaxis()
+    axs[0,1].axhline(y=eventBand[0])
+    axs[0,1].axhline(y=eventBand[1])
 
-        # Get TFR, time course, and events data for this class of trials only 
-        trial_inds = np.where(classLabels == clss)[0]
-        classTFR = TFR[trial_inds,:,:]
-        classTFR_norm = TFR_norm[trial_inds,:,:]
-        classTrials = timeseries[trial_inds,:]
+    # Trial Loop 
+    for t in np.arange(numSampTrials):
+        
+        # Get spectral events for this trial and band of interest only
+        df = specEv.copy()
+        df2 = df[df['Trial']==t]
+        df3 = df2.drop(df2[df2['Peak Frequency']<eventBand[0]].index)
+        df4 = df3.drop(df3[df3['Peak Frequency']>eventBand[1]].index)
+        freqs = df4['Peak Frequency'].tolist()
+        times = df4['Peak Time'].tolist()
 
-        # Inter-trial average 
-        avgTFR = np.squeeze(np.mean(classTFR,axis=0))
-        avgTFR_norm = np.squeeze(np.mean(classTFR_norm,axis=0))
+        # Plot trial TFR with time course overlaid
+        im = axs[t+1,0].pcolor(tVec, fVec[eventBand_inds], np.squeeze(TFR[t,eventBand_inds,:]), 
+            cmap='jet')
+        fig.colorbar(im, ax=axs[t+1,0])
+        axs[t+1,0].invert_yaxis()
+        axs[t+1,0].scatter(times, freqs, c='w', s=5)
+        ax2 = axs[t+1,0].twinx()
+        ax2.plot(tVec, timeseries[t,:], 'w', linewidth=0.5)
+        axs[t+1,0].set_xlim(tVec[0],tVec[-1])
+        
+        # Plot trial normalized TFR with time course overlaid
+        im = axs[t+1,1].pcolor(tVec, fVec[eventBand_inds], np.squeeze(TFR_norm[t,eventBand_inds,:]), 
+            cmap='jet', vmin=0, vmax=10)
+        fig.colorbar(im, ax=axs[t+1,1])
+        axs[t+1,1].invert_yaxis()
+        axs[t+1,1].scatter(times, freqs, c='w', s=5)
+        ax2 = axs[t+1,1].twinx()
+        ax2.plot(tVec, timeseries[t,:], 'w', linewidth=0.5)            
+        axs[t+1,1].set_xlim(tVec[0],tVec[-1])
+        
+    axs[t+1,0].set_xlabel('Time [s]')
+    axs[t+1,1].set_xlabel('Time [s]')
 
-        ########################
-        # Plot TFR data
-        fig, axs = plt.subplots(nrows=11, ncols=2)
-
-        # Title
-        axs[0,0].set_title( 'DataSet ' + str(dataSetNum) + ', Trial class ' + str(clss) )
-
-        # Plot average TFR
-        im = axs[0,0].pcolor(tVec, fVec, avgTFR, cmap='jet')
-        fig.colorbar(im, ax=axs[0,0])
-        axs[0,0].invert_yaxis()
-        axs[0,0].axhline(y=eventBand[0])
-        axs[0,0].axhline(y=eventBand[1])
-
-        # Plot average normalized TFR
-        im = axs[0,1].pcolor(tVec, fVec, avgTFR_norm, cmap='jet')
-        fig.colorbar(im, ax=axs[0,1])
-        axs[0,1].invert_yaxis()
-        axs[0,1].axhline(y=eventBand[0])
-        axs[0,1].axhline(y=eventBand[1])
-
-        # Trial Loop 
-        for t in np.arange(numSampTrials):
-            
-            # Get spectral events for this trial and band of interest only
-            df = specEv.copy()
-            df1 = df[df['Trial']==trial_inds[t]]
-            df2 = df1[df1['Outlier Event']]
-            df3 = df2.drop(df2[df2['Peak Frequency']<eventBand[0]].index)
-            df4 = df3.drop(df3[df3['Peak Frequency']>eventBand[1]].index)
-            freqs = df4['Peak Frequency'].tolist()
-            times = df4['Peak Time'].tolist()
-
-            # Plot trial TFR with time course overlaid
-            im = axs[t+1,0].pcolor(tVec, fVec[eventBand_inds], np.squeeze(classTFR[t,eventBand_inds,:]), 
-                cmap='jet')
-            fig.colorbar(im, ax=axs[t+1,0])
-            axs[t+1,0].invert_yaxis()
-            axs[t+1,0].scatter(times, freqs, c='w', s=5)
-            ax2 = axs[t+1,0].twinx()
-            ax2.plot(tVec, classTrials[t,:], 'w', linewidth=0.5)
-            axs[t+1,0].set_xlim(tVec[0],tVec[-1])
-            
-            # Plot trial normalized TFR with time course overlaid
-            im = axs[t+1,1].pcolor(tVec, fVec[eventBand_inds], np.squeeze(classTFR_norm[t,eventBand_inds,:]), 
-                cmap='jet', vmin=0, vmax=10)
-            fig.colorbar(im, ax=axs[t+1,1])
-            axs[t+1,1].invert_yaxis()
-            axs[t+1,1].scatter(times, freqs, c='w', s=5)
-            ax2 = axs[t+1,1].twinx()
-            ax2.plot(tVec, classTrials[t,:], 'w', linewidth=0.5)            
-            axs[t+1,1].set_xlim(tVec[0],tVec[-1])
-            
-        axs[t+1,0].set_xlabel('Time [s]')
-        axs[t+1,1].set_xlabel('Time [s]')
-
-        figs.append( fig )
-
-    return figs, classes
+    return fig, axs

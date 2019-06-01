@@ -70,7 +70,7 @@ elif fVec[-1] > Fn:
 elif np.abs(fVec[1]-fVec[0]) < Fmin:
     sys.exit('Frequency vector includes values outside the resolvable/alias-free range.')
 
-# Run spectral event analysis per dataset
+# Run spectral event analysis per dataset (Dataset loop)
 TFR = []
 specEvents = []
 ctr = 1
@@ -82,27 +82,57 @@ for thisX in x:
     thisTFR, tVec, fVec = tse.spectralevents_ts2tfr( thisData.T, fVec, Fs, width )
     TFR.append( thisTFR )
 
+    # Normalize the TFR data [tr x f x t] to the median value per frequency band 
+    numTrials, numFreqBins, numSamples = thisTFR.shape
+    TFR_order = np.transpose(thisTFR, axes=[1,0,2]) # [f x tr x t]
+    TFR_reshape = np.reshape(TFR_order, (numFreqBins, numTrials*numSamples))
+    TFRmeds = np.median(TFR_reshape, axis=1)        # f vector
+    TFRmeds_expanded = np.transpose(np.tile(TFRmeds, (numSamples,numTrials,1)), axes=[1,2,0])
+    thisTFR_norm = thisTFR/TFRmeds_expanded
+
     # Find local maxima in TFR
     thisSpecEvents = tse.spectralevents_find (findMethod, thrFOM, tVec, fVec, thisTFR, thisClassLabels, 
         neighbourhood_size, threshold, Fs)
     thisSpecEvents = pd.DataFrame( thisSpecEvents )
     specEvents.append( thisSpecEvents )
 
-    # Plot results
+    # Extract event attributes for this test data 
+    classes = np.unique( thisSpecEvents['Hit/Miss'].tolist() )
+
+    # Plot results?
     if vis:
-        figs, classes = tse.spectralevents_vis( thisSpecEvents, thisClassLabels, thisData, thisTFR, 
-            tVec, fVec, eventBand, ctr )
-        
-        # Save each figure made
-        for figNum in np.arange(len(figs)):
 
-            figName = os.path.join('test_data', 'results', 'python', 
-                "".join(['prestim_humandetection_600hzMEG_subject', str(ctr), '_class_', 
-                str(classes[figNum]), '.png']))
-            figs[figNum].savefig(figName)
+        # Plot results for each class of trial
+        for clss in classes:
 
-    plt.close()
+            # Get TFR, time course, and trial IDs for this class of trials only 
+            trial_inds = np.where(thisClassLabels == clss)[0]
+            classTFR = thisTFR[trial_inds,:,:]
+            classTFR_norm = thisTFR_norm[trial_inds,:,:]
+            classData = thisData[trial_inds,:]
 
+            # Get events data for this class only, and update trial indices to be consecutive
+            #   starting at 0
+            df = thisSpecEvents[thisSpecEvents['Hit/Miss']==clss]
+            classEvents = df.copy()
+            classEvents = classEvents.replace(trial_inds, np.arange(len(trial_inds)))
+
+            # Drop events that are low threshold (below 6 FOM)
+            classEvents = classEvents[classEvents['Outlier Event']==1]
+
+            # Make figure
+            fig, axs = tse.spectralevents_vis( classEvents, classData, classTFR, classTFR_norm, 
+                tVec, fVec, eventBand )
+            # Add title
+            axs[0,0].set_title( 'DataSet ' + str(ctr) + ', Trial class ' + str(clss) )
+
+            # Save figure
+            figName = os.path.join('test_results', 'python', 
+                    "".join(['prestim_humandetection_600hzMEG_subject', str(ctr), '_class_', 
+                    str(clss), '.png']))
+            fig.savefig(figName)
+            plt.close()
+    
     ctr = ctr + 1
     
 
